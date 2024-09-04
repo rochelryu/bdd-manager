@@ -1,0 +1,51 @@
+version: '3.9'
+
+services:
+  mysql:
+    image: mysql:8
+    container_name: mysql-db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: 0Wd1F38NO=0?
+    ports:
+      - 3307:3306
+    volumes:
+      - ./data/mysql:/var/lib/mysql
+    networks:
+      - db_network
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: phpmyadmin
+    restart: always
+    environment:
+      PMA_HOST: mysql
+      PMA_USER: root
+      PMA_PASSWORD: 0Wd1F38NO=0?
+      UPLOAD_LIMIT: 2048M
+    ports:
+      - 8082:80
+    networks:
+      - db_network
+    depends_on:
+      - mysql
+
+  mongodb:
+    image: mongo:latest
+    container_name: mongodb
+    restart: always
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: mongodemo
+      MONGO_INITDB_ROOT_PASSWORD: pH45K9g6
+    volumes:
+      - /mongo/db:/mongo/db
+    ports:
+      - 27018:27017
+    networks:
+      - db_network
+
+volumes:
+  mongodb_data:
+
+networks:
+  db_network:
