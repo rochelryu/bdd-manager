@@ -38,7 +38,7 @@ services:
       MONGO_INITDB_ROOT_USERNAME: mongodemo
       MONGO_INITDB_ROOT_PASSWORD: pH45K9g6
     volumes:
-      - /mongo/db:/mongo/db
+      - ./mongo/db:/mongo/db
     ports:
       - 27018:27017
     networks:
