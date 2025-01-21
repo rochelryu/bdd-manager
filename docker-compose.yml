@@ -1,46 +1,46 @@
 services:
-  mysql:
+  mysql_prod:
     image: mysql:8
-    container_name: mysql-db
+    container_name: mysql_prod
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: 0Wd1F38NO=0?
+      MYSQL_ROOT_PASSWORD: 80G+lOL0?2tO
     ports:
-      - 3307:3306
+      - 3308:3306
     volumes:
       - ./data/mysql:/var/lib/mysql
     networks:
-      - db_network
+      - db_network_prod
 
-  phpmyadmin:
+  phpmyadmin_prod:
     image: phpmyadmin/phpmyadmin
-    container_name: phpmyadmin
+    container_name: phpmyadmin_prod
     restart: always
     environment:
-      PMA_HOST: mysql
+      PMA_HOST: mysql_prod
       PMA_USER: root
-      PMA_PASSWORD: 0Wd1F38NO=0?
+      PMA_PASSWORD: 80G+lOL0?2tO
       UPLOAD_LIMIT: 2048M
     ports:
-      - 8082:80
+      - 8083:80
     networks:
-      - db_network
+      - db_network_prod
     depends_on:
-      - mysql
+      - mysql_prod
 
-  mongodb:
+  mongodb_prod:
     image: mongo:latest
-    container_name: mongodb
+    container_name: mongodb_prod
     restart: always
     environment:
-      MONGO_INITDB_ROOT_USERNAME: mongodemo
-      MONGO_INITDB_ROOT_PASSWORD: pH45K9g6
+      MONGO_INITDB_ROOT_USERNAME: mongoprod
+      MONGO_INITDB_ROOT_PASSWORD: tImp61109998
     volumes:
       - ./mongo/db:/mongo/db
     ports:
       - 27017:27017
     networks:
-      - db_network
+      - db_network_prod
 
   zookeeper:
     image: confluentinc/cp-zookeeper:latest
@@ -74,5 +74,5 @@ volumes:
   mongodb_data:
 
 networks:
-  db_network:
   kafka_network:
+  db_network_prod:
