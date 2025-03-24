@@ -42,7 +42,7 @@ services:
     networks:
       - db_network_prod
 
-  zookeeper:
+  zookeeper_prod:
     image: confluentinc/cp-zookeeper:latest
     container_name: zookeeper
     restart: always
@@ -54,7 +54,7 @@ services:
     networks:
       - kafka_network
 
-  kafka:
+  kafka_prod:
     image: confluentinc/cp-kafka:latest
     container_name: kafka
     restart: always
@@ -63,6 +63,8 @@ services:
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    volumes:
+      - kafka_data:/var/lib/kafka/data
     ports:
       - 9092:9092
     depends_on:
@@ -72,6 +74,7 @@ services:
 
 volumes:
   mongodb_data:
+  kafka_data:
 
 networks:
   kafka_network:
