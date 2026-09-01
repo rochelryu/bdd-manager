@@ -1,79 +1,456 @@
 services:
+
+  # =========================================================
+  # MYSQL
+  # =========================================================
+
   mysql_prod:
-    image: mysql:8
+    image: mysql:9
     container_name: mysql_prod
-    restart: always
+    restart: unless-stopped
+
     environment:
-      MYSQL_ROOT_PASSWORD: 80G+lOL0?2tO
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+
     ports:
-      - 3308:3306
+      - "3308:3306"
+
     volumes:
       - ./data/mysql:/var/lib/mysql
+
     networks:
       - db_network_prod
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mysqladmin ping -h localhost -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+
+  # =========================================================
+  # PHPMYADMIN
+  # =========================================================
 
   phpmyadmin_prod:
-    image: phpmyadmin/phpmyadmin
+    image: phpmyadmin/phpmyadmin:latest
     container_name: phpmyadmin_prod
-    restart: always
+    restart: unless-stopped
+
     environment:
       PMA_HOST: mysql_prod
-      PMA_USER: root
-      PMA_PASSWORD: 80G+lOL0?2tO
+      PMA_PORT: 3306
+
+      PMA_ABSOLUTE_URI: "http://57.129.54.166:8083/"
+
       UPLOAD_LIMIT: 2048M
+      MEMORY_LIMIT: 512M
+      MAX_EXECUTION_TIME: 600
+
     ports:
-      - 8083:80
+      - "8083:80"
+
+    depends_on:
+      mysql_prod:
+        condition: service_healthy
+
     networks:
       - db_network_prod
+
+
+  # =========================================================
+  # MYSQL BACKUP
+  # =========================================================
+
+  mysql_backup:
+    image: mysql:9
+    container_name: mysql_backup
+    restart: unless-stopped
+
+    environment:
+      MYSQL_HOST: mysql_prod
+      MYSQL_PORT: 3306
+      MYSQL_USER: root
+      MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+
+      BACKUP_RETENTION_DAYS: 30
+      BACKUP_HOUR: "02"
+      BACKUP_MINUTE: "30"
+
+    volumes:
+      - ./backup/mysql:/backups
+
     depends_on:
-      - mysql_prod
+      mysql_prod:
+        condition: service_healthy
+
+    networks:
+      - db_network_prod
+
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        set -e
+
+        echo "MySQL backup service started."
+
+        while true; do
+
+          CURRENT_HOUR=$$(date +%H)
+          CURRENT_MINUTE=$$(date +%M)
+
+          if [ "$$CURRENT_HOUR" = "$$BACKUP_HOUR" ] && [ "$$CURRENT_MINUTE" = "$$BACKUP_MINUTE" ]; then
+
+            DATE=$$(date +%Y-%m-%d_%H-%M-%S)
+
+            echo "Starting MySQL backup: $$DATE"
+
+            mysqldump \
+              --host=$$MYSQL_HOST \
+              --port=$$MYSQL_PORT \
+              --user=$$MYSQL_USER \
+              --password=$$MYSQL_PASSWORD \
+              --single-transaction \
+              --routines \
+              --triggers \
+              --events \
+              --hex-blob \
+              --all-databases \
+              | gzip > "/backups/mysql_$$DATE.sql.gz"
+
+            echo "MySQL backup completed."
+
+            find /backups \
+              -type f \
+              -name "*.sql.gz" \
+              -mtime +$$BACKUP_RETENTION_DAYS \
+              -delete
+
+            echo "Old MySQL backups cleaned."
+
+            sleep 60
+
+          fi
+
+          sleep 30
+
+        done
+
+
+  # =========================================================
+  # POSTGRESQL
+  # =========================================================
+
+  postgresql_prod:
+    image: postgres:18
+    container_name: postgresql_prod
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_ROOT_PASSWORD}
+      POSTGRES_DB: postgres
+
+      # PostgreSQL 18
+      PGDATA: /var/lib/postgresql/18/docker
+
+    volumes:
+      - ./data/postgresql:/var/lib/postgresql
+
+    networks:
+      - db_network_prod
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U postgres -d postgres"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+
+  # =========================================================
+  # PGADMIN
+  # =========================================================
+
+  pgadmin_prod:
+    image: dpage/pgadmin4:latest
+    container_name: pgadmin_prod
+    restart: unless-stopped
+
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
+
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+
+    ports:
+      - "8004:8004"
+
+    volumes:
+      - ./data/pgadmin:/var/lib/pgadmin
+
+    depends_on:
+      postgresql_prod:
+        condition: service_healthy
+
+    networks:
+      - db_network_prod
+
+
+  # =========================================================
+  # POSTGRESQL BACKUP
+  # =========================================================
+
+  postgresql_backup:
+    image: postgres:18
+    container_name: postgresql_backup
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_HOST: postgresql_prod
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_ROOT_PASSWORD}
+
+      BACKUP_RETENTION_DAYS: 30
+      BACKUP_HOUR: "03"
+      BACKUP_MINUTE: "00"
+
+    volumes:
+      - ./backup/postgresql:/backups
+
+    depends_on:
+      postgresql_prod:
+        condition: service_healthy
+
+    networks:
+      - db_network_prod
+
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        set -e
+
+        echo "PostgreSQL backup service started."
+
+        while true; do
+
+          CURRENT_HOUR=$$(date +%H)
+          CURRENT_MINUTE=$$(date +%M)
+
+          if [ "$$CURRENT_HOUR" = "$$BACKUP_HOUR" ] && [ "$$CURRENT_MINUTE" = "$$BACKUP_MINUTE" ]; then
+
+            DATE=$$(date +%Y-%m-%d_%H-%M-%S)
+
+            echo "Starting PostgreSQL backup: $$DATE"
+
+            export PGPASSWORD="$$POSTGRES_PASSWORD"
+
+            pg_dumpall \
+              --host=$$POSTGRES_HOST \
+              --port=$$POSTGRES_PORT \
+              --username=$$POSTGRES_USER \
+              | gzip > "/backups/postgresql_$$DATE.sql.gz"
+
+            unset PGPASSWORD
+
+            echo "PostgreSQL backup completed."
+
+            find /backups \
+              -type f \
+              -name "*.sql.gz" \
+              -mtime +$$BACKUP_RETENTION_DAYS \
+              -delete
+
+            echo "Old PostgreSQL backups cleaned."
+
+            sleep 60
+
+          fi
+
+          sleep 30
+
+        done
+
+
+  # =========================================================
+  # MONGODB
+  # =========================================================
 
   mongodb_prod:
-    image: mongo:latest
+    image: mongo:8
     container_name: mongodb_prod
-    restart: always
+    restart: unless-stopped
+
     environment:
-      MONGO_INITDB_ROOT_USERNAME: mongoprod
-      MONGO_INITDB_ROOT_PASSWORD: tImp61109998
-    volumes:
-      - ./mongo/db:/mongo/db
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+
     ports:
-      - 27017:27017
+      - "27017:27017"
+
+    volumes:
+      - ./data/mongo:/data/db
+
     networks:
       - db_network_prod
 
-  zookeeper_prod:
-    image: confluentinc/cp-zookeeper:latest
-    container_name: zookeeper
-    restart: always
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mongosh --quiet --eval \"db.adminCommand('ping').ok\""
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+
+  # =========================================================
+  # MONGODB BACKUP
+  # =========================================================
+
+  mongodb_backup:
+    image: mongo:8
+    container_name: mongodb_backup
+    restart: unless-stopped
+
     environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-    ports:
-      - 2181:2181
+      MONGO_HOST: mongodb_prod
+      MONGO_PORT: 27017
+      MONGO_USER: ${MONGO_ROOT_USERNAME}
+      MONGO_PASSWORD: ${MONGO_ROOT_PASSWORD}
+
+      BACKUP_RETENTION_DAYS: 30
+      BACKUP_HOUR: "03"
+      BACKUP_MINUTE: "30"
+
+    volumes:
+      - ./backup/mongo:/backups
+
+    depends_on:
+      mongodb_prod:
+        condition: service_healthy
+
     networks:
-      - kafka_network
+      - db_network_prod
+
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        set -e
+
+        echo "MongoDB backup service started."
+
+        while true; do
+
+          CURRENT_HOUR=$$(date +%H)
+          CURRENT_MINUTE=$$(date +%M)
+
+          if [ "$$CURRENT_HOUR" = "$$BACKUP_HOUR" ] && [ "$$CURRENT_MINUTE" = "$$BACKUP_MINUTE" ]; then
+
+            DATE=$$(date +%Y-%m-%d_%H-%M-%S)
+
+            echo "Starting MongoDB backup: $$DATE"
+
+            mongodump \
+              --host=$$MONGO_HOST \
+              --port=$$MONGO_PORT \
+              --username=$$MONGO_USER \
+              --password=$$MONGO_PASSWORD \
+              --authenticationDatabase=admin \
+              --archive="/backups/mongodb_$$DATE.archive.gz" \
+              --gzip \
+              --oplog
+
+            echo "MongoDB backup completed."
+
+            find /backups \
+              -type f \
+              -name "*.archive.gz" \
+              -mtime +$$BACKUP_RETENTION_DAYS \
+              -delete
+
+            echo "Old MongoDB backups cleaned."
+
+            sleep 60
+
+          fi
+
+          sleep 30
+
+        done
+
+
+  # =========================================================
+  # KAFKA
+  # =========================================================
 
   kafka_prod:
-    image: confluentinc/cp-kafka:latest
-    container_name: kafka
-    restart: always
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://57.129.54.166:9092
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      
+    image: apache/kafka:latest
+    container_name: kafka_prod
+    restart: unless-stopped
+
+    hostname: kafka
+
     ports:
-      - 9092:9092
-    depends_on:
-      - zookeeper_prod
+      - "9092:9092"
+
+    environment:
+      KAFKA_NODE_ID: 1
+
+      KAFKA_PROCESS_ROLES: broker,controller
+
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:29093
+
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://57.129.54.166:9092
+
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+
+    volumes:
+      - ./kafka/data:/var/lib/kafka/data
+
     networks:
       - kafka_network
 
-volumes:
-  mongodb_data:
+
+# =========================================================
+# NETWORKS
+# =========================================================
 
 networks:
-  kafka_network:
+
   db_network_prod:
+    driver: bridge
+
+  kafka_network:
+    driver: bridge
