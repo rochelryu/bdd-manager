@@ -4,7 +4,7 @@ data/mongo/
 data/mysql/
 data/pgadmin/
 data/postgresql/
-
+kafka/data/
 
 backup/mongo/
 backup/mysql/
